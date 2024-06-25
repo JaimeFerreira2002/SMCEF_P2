@@ -1,4 +1,3 @@
-# SMCEF_P2
 import numpy as np
 import scipy
 import matplotlib.pyplot as plt
@@ -42,7 +41,7 @@ def interpolation():
 
 def air_resistance(density, a, cd, velocity):
     
-    resistance = - 0.5 * density * a * cd * velocity**2
+    resistance =  0.5 * density * a * cd * velocity ** 2
     
     return resistance
 
@@ -52,11 +51,38 @@ def proj_distance(angle):
     
     return dist
 
+
+def forces(v, angle, density):
+    
+    vertical_forces = m_shuttle * g - air_resistance(density, a_shuttle, cd_shuttle, v)* np.cos(angle) - air_resistance(density, a_shuttle, cl_shuttle, v)
+    horizontal_forces = - air_resistance(density, a_shuttle, cd_shuttle, v) * np.sin(angle)
+    
+    return vertical_forces, horizontal_forces
+    
+
+def forces_chute(v, angle, density):
+    
+    forces = m_shuttle * g - air_resistance(density, a_shuttle, cd_shuttle, v)* np.cos(angle) - air_resistance(density, a_parachute, cd_parachute, v)
+    
+    return forces
+
+
+
 def eulerFalling(v, dh, m, resistance):
     
     
 
-    return g*dh - resistance/m * dh + v
+    return (g*dh) - ((resistance/m) *  dh) + v
+
+
+
+
+
+
+
+
+
+
 
 def reentry(v0, dh, htotal):
       
@@ -66,7 +92,7 @@ def reentry(v0, dh, htotal):
     #Number of steps to take plus one to have the initial value
     
     out = np.zeros((size, 2), dtype=float) #Output numpy array
-    out[0] = [130000, v0]
+    out[0] = [htotal, v0]
 
     v = v0
     for i in range(size):
@@ -76,7 +102,7 @@ def reentry(v0, dh, htotal):
             density = 0
         
         r = air_resistance(density, a_shuttle, cd_shuttle, v) + air_resistance(density, a_shuttle, cl_shuttle, v)
-        
+        print(r)
         v = eulerFalling(v, dh, m_shuttle, r)
         
         out[i] = [h, v]
@@ -84,9 +110,12 @@ def reentry(v0, dh, htotal):
     return out
 
 
-result = reentry(10000, 1, 130000)
+result = reentry(1000, 0.001, 13)
 fig, ax = plt.subplots()
 ax.plot(result[:, 0], result[:, 1])
 ax.set_xlabel('x/m')
 ax.set_ylabel('v/$ms^{-1}$')
 pass
+
+   
+
