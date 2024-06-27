@@ -1,11 +1,12 @@
+
 import numpy as np
-import scipy
+from scipy.interpolate import CubicSpline
 import matplotlib.pyplot as plt
 
 ####Constants####
 
 m_shuttle = 12000
-a_shuttle = 4 * scipy.pi * m_shuttle**2
+a_shuttle = 4 * np.pi
 cd_shuttle = 1.2
 cl_shuttle = 1
 
@@ -24,7 +25,7 @@ densities = [1.347, 1.225, 1.112, 1.007, 0.9093, 0.8194, 0.7364, 0.6601, 0.5900,
 
 def interpolation():
     xs = np.arange(-1000, 140000)
-    cs = scipy.interpolate.CubicSpline(heights, densities)
+    cs = CubicSpline(heights, densities)
 
     fig, ax = plt.subplots(figsize=(6.5, 4))
     ax.plot(heights, densities, 'o', label='data')
@@ -83,39 +84,75 @@ def eulerFalling(v, dh, m, resistance):
 
 
 
+def eulerFalling_newton(v0, dh, m, density):
+    """
+    Método de Euler Regressivo utilizando o Método de Newton-Raphson.
+    
+    Args:
+        v0: Velocidade inicial.
+        dh: Passo de tempo.
+        m: Massa do objeto.
+        density: Densidade do ar.
+    
+    Returns:
+        v: Nova velocidade após o passo de tempo dh.
+    """
+    
+    def f(v):
+        resistance = air_resistance(density, a_shuttle, cd_shuttle, v) + air_resistance(density, a_shuttle, cl_shuttle, v)
+        return v - v0 - dh * (g - resistance / m)
+    
+    def df_dv(v):
+        d_resistance_dv = (density * a_shuttle * cd_shuttle * v + density * a_shuttle * cl_shuttle * v)
+        return 1 - dh * (-d_resistance_dv / m)
+    
+    v_curr = v0
+    tol = dh*0.01
+    max_iter = 3000
+    for i in range(max_iter):
+        f_val = f(v_curr)
+        df_val = df_dv(v_curr)
+        v_next = v_curr - f_val / df_val
+        if abs(v_next - v_curr) < tol:
+            break
+        v_curr = v_next
+    
+    return v_curr
 
-def reentry(v0, dh, htotal):
-      
+def reentry(v0, dh, htotal, method):
     cs = interpolation()
 
     size = int(htotal / dh + 1)
-    #Number of steps to take plus one to have the initial value
-    
-    out = np.zeros((size, 2), dtype=float) #Output numpy array
+    out = np.zeros((size, 2), dtype=float) # Output numpy array
     out[0] = [htotal, v0]
 
     v = v0
-    for i in range(size):
-        h = size - i
+    for i in range(1, size):
+        h = htotal - i * dh
         density = cs(h)
         if density < 0:
             density = 0
         
-        r = air_resistance(density, a_shuttle, cd_shuttle, v) + air_resistance(density, a_shuttle, cl_shuttle, v)
-        print(r)
-        v = eulerFalling(v, dh, m_shuttle, r)
+        if method == 'euler':
+            r = air_resistance(density, a_shuttle, cd_shuttle, v) + air_resistance(density, a_shuttle, cl_shuttle, v)
+            print(r)
+            v = eulerFalling(v, dh, m_shuttle, r)
+        elif method == 'newton':
+            v = eulerFalling_newton(v, dh, m_shuttle, density)
         
         out[i] = [h, v]
       
     return out
 
+# Comparação dos dois métodos
+result_euler = reentry(1000, 0.05, 1300, method='euler')
+result_newton = reentry(1000, 0.05, 1300, method='newton')
 
-result = reentry(1000, 0.001, 13)
 fig, ax = plt.subplots()
-ax.plot(result[:, 0], result[:, 1])
+ax.plot(result_euler[:, 0], result_euler[:, 1], linewidth= 3, label='Euler Progressivo')
+ax.plot(result_newton[:, 0], result_newton[:, 1], label='Euler Regressivo')
 ax.set_xlabel('x/m')
 ax.set_ylabel('v/$ms^{-1}$')
-pass
-
-   
-
+ax.legend()
+plt.title('Comparação de Métodos de Reentrada')
+plt.show()
