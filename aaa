@@ -52,7 +52,15 @@ def proj_distance(angle):
     return dist
 
 
-
+def g_force(resistancex, resistancey, m):
+    
+    ay = resistancey/m - g
+    ax = resistancex/m
+    
+    gy = ay / g
+    gx = ax / g
+    
+    return gx, gy
     
 
 
@@ -85,7 +93,18 @@ def radians(angle):
     return rads
 
 
-
+def assemble(velocities, angles):
+    
+    size = len(velocities)
+    
+    results = np.zeros((size, 2))
+    
+    for i in range(size):
+        
+        results[i, 0] = velocities[i]
+        results[i, 1] = results[i]
+        
+    return results
 
 
 
@@ -100,7 +119,10 @@ def reentry(vo, ho, dt, ttotal, angle):
     t = np.zeros(size)
     h = np.zeros((size, 2)) #position array
     v = np.zeros((size, 2)) #velocity array
-
+    
+    gmax_x = 0
+    gmax_y = 0
+    
     h[0, 0] = 0
     h[0, 1] = ho
     v[0, 0] = vo * np.cos(rads)
@@ -114,10 +136,11 @@ def reentry(vo, ho, dt, ttotal, angle):
         
         h[i,0], h[i,1] = euler_h(v[i-1, 0], v[i-1, 1], dt, h[i-1, 0], h[i-1, 1])
         xi = h[i, 0] - h[i-1, 0]
-        yi = h[i, 1] - h[i-1, 1]
+        yi = h[i, 1]
         ai = xi / (earth_radius + yi)
         
         total_angle = total_angle + ai
+        
     
         density = cs(h[i, 1])
         if density < 0:
@@ -133,8 +156,14 @@ def reentry(vo, ho, dt, ttotal, angle):
             _ , ry2 = air_resistance(density, a_shuttle, cl_shuttle, v[i-1, 0], v[i-1, 1])
             
             ry = ry1 + ry2
-            
+           
         v[i, 0], v[i, 1] = euler_v(v[i-1, 1], v[i-1, 0], dt, m_shuttle, rx, ry)
+        
+        gx, gy = g_force(rx, ry, m_shuttle)
+        if gx > gmax_x:
+            gmax_x = gx
+        if gy > gmax_y:
+            gmax_y = gy
         
         
          
@@ -152,7 +181,29 @@ def reentry(vo, ho, dt, ttotal, angle):
         
     proj_dist = proj_distance(ai)  
     
-    return t, h, v, proj_dist, vt
+    return t, h, v, proj_dist, vt, gmax_x, gmax_y
+        
+    
+def simulation(vos, ho, dt, ttotal, angles):
+    
+    valid_vs = []
+    valid_angles = []
+    
+    for i in vos:
+        for j in angles:
+            
+            _, _, _, proj_dist, vt, gmax_x, gmax_y = reentry(i, ho, dt, ttotal, j)
+            
+            if proj_dist > 2500000 and proj_dist < 4500000 and vt < 25 and gmax_x < 15 and gmax_y < 15:
+                valid_vs.append(vos[i])
+                valid_angles.append(angles[j])
+                
+    results = assemble(valid_vs, valid_angles)
+    
+    return results
+            
+    
+  
         
     
     
