@@ -1,0 +1,176 @@
+import numpy as np
+from scipy.interpolate import CubicSpline
+import matplotlib.pyplot as plt
+
+#### Constants ####
+
+m_shuttle = 12000
+a_shuttle = 4 * np.pi 
+cd_shuttle = 1.2
+cl_shuttle = 1
+
+a_parachute = 301
+cd_parachute = 1
+
+g = 10
+earth_radius = 6371000
+
+heights = [-1000, 0, 1000, 2000, 3000, 4000, 5000, 6000, 7000, 8000, 9000, 10000,
+             15000, 20000, 25000, 30000, 40000, 50000, 60000, 70000, 80000]
+
+densities = [1.347, 1.225, 1.112, 1.007, 0.9093, 0.8194, 0.7364, 0.6601, 0.5900,
+             0.5258, 0.4671, 0.4135, 0.1948, 0.08891, 0.04008, 0.01841, 0.003996,
+             0.001027, 0.0003097, 0.00008283, 0.00001846]
+
+def interpolation():
+    xs = np.arange(-1000, 140000)
+    cs = CubicSpline(heights, densities)
+
+    fig, ax = plt.subplots(figsize=(6.5, 4))
+    ax.plot(heights, densities, 'o', label='data')
+    ax.plot(xs, cs(xs))
+
+    ax.legend(loc='upper right', ncol=1)
+    plt.show()
+    
+    return cs
+
+def air_resistance(density, a, cd, vx, vy):
+    resistancex = 0.5 * density * a * cd * vx ** 2
+    resistancey = 0.5 * density * a * cd * vy ** 2
+    return resistancex, resistancey
+
+def proj_distance(angle):
+    dist = earth_radius * angle
+    return dist
+
+def g_force(resistancex, resistancey, m):
+    ay = resistancey / m - g
+    ax = resistancex / m
+    gy = ay / g
+    gx = ax / g
+    return gx, gy
+
+def euler_v_impli(vy, vx, dt, m, density):
+
+    def f_vx(vx_new):
+        resistancex, _ = air_resistance(density, a_shuttle, cd_shuttle, vx_new, vy)
+        return vx_new - vx + (resistancex / m) * dt
+    
+    def df_vx(vx_new):
+        resistancex, _ = air_resistance(density, a_shuttle, cd_shuttle, vx_new, vy)
+        return 1 + (density * a_shuttle * cd_shuttle * vx_new * dt / m)
+    
+    def f_vy(vy_new):
+        _, resistancey = air_resistance(density, a_shuttle, cd_shuttle, vx, vy_new)
+        return vy_new - vy + (g - resistancey / m) * dt
+    
+    def df_vy(vy_new):
+        _, resistancey = air_resistance(density, a_shuttle, cd_shuttle, vx, vy_new)
+        return 1 + (density * a_shuttle * cd_shuttle * vy_new * dt / m)
+    
+    vx_new, vy_new = vx, vy
+    tol, max_iter = 1e-6, 100
+    for _ in range(max_iter):
+        vx_next = vx_new - f_vx(vx_new) / df_vx(vx_new)
+        vy_next = vy_new - f_vy(vy_new) / df_vy(vy_new)
+        if abs(vx_next - vx_new) < tol and abs(vy_next - vy_new) < tol:
+            break
+        vx_new, vy_new = vx_next, vy_next
+    return vx_new, vy_new
+
+def euler_h(vx, vy, dt, rx, ry):
+    
+    rx_new = rx + vx * dt
+    ry_new = ry - vy * dt
+    return rx_new, ry_new
+
+def radians(angle):
+    rads = (angle * 2 * np.pi) / 360
+    return rads
+
+def assemble(velocities, angles):
+    size = len(velocities)
+    results = np.zeros((size, 2))
+    for i in range(size):
+        results[i, 0] = velocities[i]
+        results[i, 1] = results[i]
+    return results
+
+def reentry(vo, ho, dt, ttotal, angle):
+    cs = interpolation()
+    rads = radians(angle)
+    size = int(ttotal / dt + 1)
+    t = np.zeros(size)
+    h = np.zeros((size, 2))  # position array
+    v = np.zeros((size, 2))  # velocity array
+    
+    gmax_x = 0
+    gmax_y = 0
+    
+    h[0, 0] = 0
+    h[0, 1] = ho
+    v[0, 0] = vo * np.cos(rads)
+    v[0, 1] = vo * np.sin(rads)
+    
+    total_angle = 0
+    
+    for i in range(1, size):
+        h[i, 0], h[i, 1] = euler_h(v[i-1, 0], v[i-1, 1], dt, h[i-1, 0], h[i-1, 1])
+        
+        xi = h[i, 0] - h[i-1, 0]
+        yi = h[i, 1]
+        ai = xi / (earth_radius + yi)
+        
+        total_angle = total_angle + ai
+        
+        density = cs(h[i, 1])
+        if density < 0:
+            density = 0
+        
+        if h[i-1, 1] <= 1000 and v[i-1, 1] <= 100:
+            rx, ry1 = air_resistance(density, a_shuttle, cd_shuttle, v[i-1, 0], v[i-1, 1])
+            _, ry2 = air_resistance(density, a_parachute, cd_parachute, v[i-1, 0], v[i-1, 1])
+            ry = ry1 + ry2
+        else:
+            rx, ry1 = air_resistance(density, a_shuttle, cd_shuttle, v[i-1, 0], v[i-1, 1])
+            _, ry2 = air_resistance(density, a_shuttle, cl_shuttle, v[i-1, 0], v[i-1, 1])
+            ry = ry1 + ry2
+        
+        v[i, 0], v[i, 1] = euler_v_impli(v[i-1, 1], v[i-1, 0], dt, m_shuttle, density)
+        
+        gx, gy = g_force(rx, ry, m_shuttle)
+        if gx > gmax_x:
+            gmax_x = gx
+        if gy > gmax_y:
+            gmax_y = gy
+        
+        t[i] = t[i-1] + dt
+        if h[i, 1] <= 0:
+            h[i, 1] = 0
+            v[i, 1] = 0 
+            v[i, 0] = 0
+            vt = v[i-1, 1]
+            break
+        else:
+            vt = v[i, 1]
+    
+    proj_dist = proj_distance(ai)  
+    
+    return t, h, v, proj_dist, vt, gmax_x, gmax_y
+        
+def simulation(vos, ho, dt, ttotal, angles):
+    valid_vs = []
+    valid_angles = []
+    
+    for i in vos:
+        for j in angles:
+            _, _, _, proj_dist, vt, gmax_x, gmax_y = reentry(i, ho, dt, ttotal, j)
+            
+            if proj_dist > 2500000 and proj_dist < 4500000 and vt < 25 and gmax_x < 15 and gmax_y < 15:
+                valid_vs.append(vos[i])
+                valid_angles.append(angles[j])
+                
+    results = assemble(valid_vs, valid_angles)
+    
+    return results
