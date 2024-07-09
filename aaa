@@ -1,206 +1,361 @@
+from numba import jit
 import numpy as np
 import scipy
 import matplotlib.pyplot as plt
 
-####Constants####
+#### Constantes ####
 
-m_shuttle = 12000
-a_shuttle = 4 * scipy.pi 
-cd_shuttle = 1.2
-cl_shuttle = 1
+m_shuttle = 12000  # Massa da nave (inteiro)
+a_shuttle = 4 * scipy.pi  # Área da nave (float)
+cd_shuttle = 1.2  # Coeficiente de drag da nave (float)
+cl_shuttle = 1  # Coeficiente de lift da nave (inteiro)
 
-a_parachute = 301
-cd_parachute = 1
+a_parachute = 301  # Área do paraquedas (inteiro)
+cd_parachute = 1  # Coeficiente de drag do paraquedas (inteiro)
 
-g = 10
-earth_radius = 6371000
+g = 10  # Aceleração gravitacional (float)
+earth_radius = 6371000  # Raio da Terra (inteiro)
+earth_mass = 5.97 * 10 ** 24  # Massa da Terra (float)
 
 heights = [-1000, 0, 1000, 2000, 3000, 4000, 5000, 6000, 7000, 8000, 9000, 10000,
-             15000, 20000, 25000, 30000, 40000, 50000, 60000, 70000, 80000]
+           15000, 20000, 25000, 30000, 40000, 50000, 60000, 70000, 80000]  # Lista de altitudes (lista de inteiros)
 
 densities = [1.347, 1.225, 1.112, 1.007, 0.9093, 0.8194, 0.7364, 0.6601, 0.5900,
              0.5258, 0.4671, 0.4135, 0.1948, 0.08891, 0.04008, 0.01841, 0.003996,
-             0.001027, 0.0003097, 0.00008283, 0.00001846]
+             0.001027, 0.0003097, 0.00008283, 0.00001846]  # Lista de densidades atmosféricas (lista de floats)
 
 def interpolation():
-    xs = np.arange(-1000, 140000)
-    cs = scipy.interpolate.CubicSpline(heights, densities)
-
-    fig, ax = plt.subplots(figsize=(6.5, 4))
-    ax.plot(heights, densities, 'o', label='data')
-    ax.plot(xs, cs(xs))
-
-
-
-
-    ax.legend(loc='upper right', ncol=1)
-    plt.show()
+    """
+    Retorna um objeto de interpolação para densidades atmosféricas.
+    """
+    xs = np.arange(-1000, 140000)  # Valores de altura para interpolação (array de inteiros)
+    cs = scipy.interpolate.CubicSpline(heights, densities)  # Interpolação cúbica dos dados
     
-    return cs
+    return cs  
 
-
-def air_resistance(density, a, cd, vx, vy):
-    
-    resistancex = 0.5 * density * a * cd * vx ** 2
-    resistancey = 0.5 * density * a * cd * vy ** 2
-    return resistancex, resistancey
-
+@jit()
 def proj_distance(angle):
+    """
+    Calcula a distância projetada na superfície da Terra para um dado ângulo.
     
-    dist = earth_radius * angle
+    Recebe:
+    angle -- Ângulo (float)
     
-    return dist
+    Retorna:
+    dist -- Distância projetada (float)
+    """
+    dist = earth_radius * angle  # Distância = raio da Terra * ângulo
+    
+    return dist  
 
-
-def g_force(resistancex, resistancey, m):
+@jit()
+def g_force(ax, ay):
+    """
+    Calcula as forças G em direções x e y.
     
-    ay = resistancey/m - g
-    ax = resistancex/m
+    Recebe:
+    ax -- Aceleração em x (float)
+    ay -- Aceleração em y (float)
     
-    gy = ay / g
-    gx = ax / g
+    Retorna:
+    gx -- Força G em x (float)
+    gy -- Força G em y (float)
+    """
+    gy = abs(ay) / g  # Força G na direção y
+    gx = abs(ax) / g  # Força G na direção x
     
-    return gx, gy
+    return gx, gy  
+
+@jit()
+def accelerations(vx, vy, m, density, a, c, y):
+    """
+    Calcula as acelerações nas direções x e y.
     
-
-
-
-
-def euler_v(vy, vx, dt, m, resistancex, resistancey):
+    Recebe:
+    vx -- Velocidade em x (float)
+    vy -- Velocidade em y (float)
+    m -- Massa (inteiro)
+    density -- Densidade do ar (float)
+    a -- Área (inteiro)
+    c -- Coeficiente de arrasto (float)
+    y -- Altura (float)
     
+    Retorna:
+    ax -- Aceleração em x (float)
+    ay -- Aceleração em y (float)
+    """
+    ax = (-0.5 * a_shuttle * density * cd_shuttle * ((vx ** 2 + vy ** 2)**0.5) * vx)/m 
+    ay = (-0.5 * a_shuttle * density * cd_shuttle * ((vx ** 2 + vy ** 2)**0.5) * vy)/m + (-0.5 * a * density * c * (vx**2 + vy**2))/m + scipy.constants.G *(earth_mass / (earth_radius + y)**2)
     
+    return ax, ay  
 
-    vy = (g*dt) - ((resistancey/m) *  dt) + vy
-    vx = - ((resistancex/m) * dt) + vx
-    if vx < 0:
-        vx = 0
-    if vy < 0:
-        vy = 0
+@jit()
+def euler_v(vx, vy, ax, ay, dt):
+    """
+    Método de Euler para calcular a velocidade nas direções x e y.
     
-    return vx, vy
+    Recebe:
+    vx -- Velocidade em x (float)
+    vy -- Velocidade em y (float)
+    ax -- Aceleração em x (float)
+    ay -- Aceleração em y (float)
+    dt -- Intervalo de tempo (float)
+    
+    Retorna:
+    vx -- Nova velocidade em x (float)
+    vy -- Nova velocidade em y (float)
+    """
+    vy = ay * dt + vy  # Nova velocidade y
+    vx = ax * dt + vx  # Nova velocidade x
+    
+    return vx, vy  # Retorna as novas velocidades em x e y
 
+@jit()
 def euler_h(vx, vy, dt, rx, ry):
-    rx = rx + vx * dt
-    ry = ry - vy * dt
-    return rx, ry
+    """
+    Método de Euler para calcular a posição nas direções x e y.
+    
+    Recebe:
+    vx -- Velocidade em x (float)
+    vy -- Velocidade em y (float)
+    dt -- Intervalo de tempo (float)
+    rx -- Posição em x (float)
+    ry -- Posição em y (float)
+    
+    Retorna:
+    rx -- Nova posição em x (float)
+    ry -- Nova posição em y (float)
+    """
+    rx = rx + vx * dt  # Nova posição x
+    ry = ry - vy * dt  # Nova posição y
+    
+    return rx, ry  
 
-
-
+@jit()
 def radians(angle):
+    """
+    Converte um ângulo de graus para radianos.
     
-    rads = (angle * 2 * scipy.pi) / 360
+    Recebe:
+    angle -- Ângulo em graus (float)
     
-    return rads
-
-
-def assemble(velocities, angles):
+    Retorna:
+    rads -- Ângulo em radianos (float)
+    """
+    rads = (angle * 2 * scipy.pi) / 360  # Conversão de graus para radianos
     
-    size = len(velocities)
-    
-    results = np.zeros((size, 2))
-    
-    for i in range(size):
-        
-        results[i, 0] = velocities[i]
-        results[i, 1] = results[i]
-        
-    return results
-
-
-
+    return rads 
 
 def reentry(vo, ho, dt, ttotal, angle):
-      
-    cs = interpolation()
-    rads = radians(angle)
-    size = int(ttotal / dt + 1)
-    #Number of steps to take plus one to have the initial value
+    """
+    Simula a reentrada atmosférica de uma nave espacial.
     
-    t = np.zeros(size)
-    h = np.zeros((size, 2)) #position array
-    v = np.zeros((size, 2)) #velocity array
+    Recebe:
+    vo -- Velocidade inicial (float)
+    ho -- Altura inicial (float)
+    dt -- Intervalo de tempo para integração (float)
+    ttotal -- Tempo total da simulação (float)
+    angle -- Ângulo de lançamento (float)
     
-    gmax_x = 0
-    gmax_y = 0
+    Retorna:
+    t -- Array de tempo (array de floats)
+    h -- Array de posição (array de floats)
+    v -- Array de velocidade (array de floats)
+    proj_dist -- Distância projetada na superfície da Terra (float)
+    vt -- Velocidade terminal (float)
+    gmax_x -- Força G máxima em x (float)
+    gmax_y -- Força G máxima em y (float)
+    a -- Array de aceleração (array de floats)
+    """
+    cs = interpolation()  # Função de interpolação para densidades atmosféricas
+    rads = radians(angle)  # Converte o ângulo para radianos
+    size = int(ttotal / dt + 1)  # Tamanho dos arrays de tempo e posição
     
-    h[0, 0] = 0
-    h[0, 1] = ho
-    v[0, 0] = vo * np.cos(rads)
-    v[0, 1] = vo * np.sin(rads)
+    t = np.zeros(size)  # Array de tempo inicializado
+    h = np.zeros((size, 2))  # Array de posição (x, y) inicializado
+    v = np.zeros((size, 2))  # Array de velocidade (vx, vy) inicializado
+    a = np.zeros((size, 2))  # Array de aceleração (ax, ay) inicializado
     
-    total_angle = 0
+    gmax_x = 0  # Inicialização da força G máxima em x
+    gmax_y = 0  # Inicialização da força G máxima em y
+    
+    h[0, 0] = 0  # Posição inicial em x
+    h[0, 1] = ho  # Posição inicial em y
+    v[0, 0] = vo * np.cos(rads)  # Velocidade inicial em x
+    v[0, 1] = vo * np.sin(rads)  # Velocidade inicial em y
+    a[0, 0] = 0  # Aceleração inicial em x
+    a[0, 1] = 0  # Aceleração inicial em y
+    
+    total_angle = 0  # Inicialização do ângulo total percorrido
+    ground_index = size  # Índice do solo
     
     for i in range(1, size):
+        h[i,0], h[i,1] = euler_h(v[i-1, 0], v[i-1, 1], dt, h[i-1, 0], h[i-1, 1])  # Calcula a nova posição (x, y)
+        xi = h[i, 0] - h[i-1, 0]  # Variação da posição em x
+        yi = h[i, 1]  # Posição em y
+        ai = xi / (earth_radius + yi)  # Ângulo incrementado
         
-        
-        
-        h[i,0], h[i,1] = euler_h(v[i-1, 0], v[i-1, 1], dt, h[i-1, 0], h[i-1, 1])
-        xi = h[i, 0] - h[i-1, 0]
-        yi = h[i, 1]
-        ai = xi / (earth_radius + yi)
-        
-        total_angle = total_angle + ai
-        
+        total_angle = total_angle + ai  # Incrementa o ângulo total percorrido
     
-        density = cs(h[i, 1])
+        density = cs(h[i, 1])  # Densidade do ar na altura atual
         if density < 0:
-            density = 0
+            density = 0  # Garante que a densidade não seja negativa
         
         if h[i-1, 1] <= 1000 and v[i-1, 1] <= 100:
-            rx, ry1 = air_resistance(density, a_shuttle, cd_shuttle, v[i-1, 0], v[i-1, 1])
-            _ , ry2 = air_resistance(density, a_parachute, cd_parachute, v[i-1, 0], v[i-1, 1])
-           
-            ry = ry1 + ry2
+            a[i, 0], a[i, 1] = accelerations(v[i-1, 0], v[i-1, 1], m_shuttle, density, a_parachute, cd_parachute, h[i, 1])
         else:
-            rx, ry1 = air_resistance(density, a_shuttle, cd_shuttle, v[i-1, 0], v[i-1, 1])
-            _ , ry2 = air_resistance(density, a_shuttle, cl_shuttle, v[i-1, 0], v[i-1, 1])
-            
-            ry = ry1 + ry2
+            a[i, 0], a[i, 1] = accelerations(v[i-1, 0], v[i-1, 1], m_shuttle, density, a_shuttle, cd_shuttle, h[i, 1])
            
-        v[i, 0], v[i, 1] = euler_v(v[i-1, 1], v[i-1, 0], dt, m_shuttle, rx, ry)
+        v[i, 0], v[i, 1] = euler_v(v[i-1, 0], v[i-1, 1], a[i, 0], a[i, 1], dt)  # Calcula a nova velocidade (vx, vy)
         
-        gx, gy = g_force(rx, ry, m_shuttle)
+        gx, gy = g_force(a[i, 0], a[i, 1])  # Calcula as forças G em x e y
         if gx > gmax_x:
-            gmax_x = gx
+            gmax_x = gx  # Atualiza a força G máxima em x se necessário
         if gy > gmax_y:
-            gmax_y = gy
+            gmax_y = gy  # Atualiza a força G máxima em y se necessário
         
+        t[i] = t[i-1] + dt  # Atualiza o tempo
         
-         
-        t[i] = t[i-1] + dt  
-        if h[i, 1] <= 0:
-            h[i, 1] = 0
-            v[i, 1] = 0 
-            v[i, 0] = 0
-            vt = v[i-1, 1]
+        if h[i, 1] <= 0:  # Verifica se a nave chegou ao solo
+            h[i, 1] = 0  # Garante que a posição em y seja zero
+            v[i, 1] = 0  # Garante que a velocidade em y seja zero
+            v[i, 0] = 0  # Garante que a velocidade em x seja zero
+            vt = v[i-1, 1]  # Velocidade terminal
+            ground_index = i  # Salva o índice do solo
             break
         else:
-            vt = v[i, 1]
-            
+            vt = v[i, 1]  # Velocidade terminal
     
-        
-    proj_dist = proj_distance(ai)  
+    t = t[:ground_index + 1]  # Ajusta o array de tempo para incluir apenas os valores válidos
+    h = h[:ground_index + 1]  # Ajusta o array de posição para incluir apenas os valores válidos
+    v = v[:ground_index + 1]  # Ajusta o array de velocidade para incluir apenas os valores válidos
+    a = a[:ground_index + 1]  # Ajusta o array de aceleração para incluir apenas os valores válidos
     
-    return t, h, v, proj_dist, vt, gmax_x, gmax_y
-        
+    proj_dist = proj_distance(total_angle)  # Calcula a distância projetada
     
+    return t, h, v, proj_dist, vt, gmax_x, gmax_y, a  
+
 def simulation(vos, ho, dt, ttotal, angles):
+    """
+    Simula várias condições de lançamento para encontrar os parâmetros válidos.
     
-    valid_vs = []
-    valid_angles = []
+    Recebe:
+    vos -- Array de velocidades iniciais (array de floats)
+    ho -- Altura inicial (float)
+    dt -- Intervalo de tempo para integração (float)
+    ttotal -- Tempo total da simulação (float)
+    angles -- Array de ângulos de lançamento (array de floats)
     
-    for i in vos:
-        for j in angles:
+    Retorna:
+    valids -- Array de parâmetros válidos (array de floats)
+    """
+    a = len(angles)  # Número de ângulos
+    v = len(vos)  # Número de velocidades iniciais
+    size = a * v  # Tamanho do array de resultados
+    valids = np.zeros((size, 2))  # Array para armazenar os parâmetros válidos
+    k = 0  # Contador de parâmetros válidos
+    
+    for i in range(v):
+        for j in range(a):
+            _, _, _, proj_dist, vt, gmax_x, gmax_y, _ = reentry(vos[i], ho, dt, ttotal, angles[j])  # Executa a simulação para cada combinação de velocidade inicial e ângulo
             
-            _, _, _, proj_dist, vt, gmax_x, gmax_y = reentry(i, ho, dt, ttotal, j)
-            
-            if proj_dist > 2500000 and proj_dist < 4500000 and vt < 25 and gmax_x < 15 and gmax_y < 15:
-                valid_vs.append(vos[i])
-                valid_angles.append(angles[j])
-                
-    results = assemble(valid_vs, valid_angles)
+            # Condições para um pouso válido
+            if 2500000 < proj_dist < 4500000 and vt < 25 and gmax_x < 15 and gmax_y < 15:
+                valids[k, 0] = vos[i]  # Velocidade válida
+                valids[k, 1] = angles[j]  # Ângulo válido
+                k += 1  # Incrementa o contador de válidos
     
-    return results
+    return valids[:k]  # Retorna apenas a parte preenchida do array de válidos
+
+# Parâmetros para a simulação inicial
+vos = np.arange(0, 16000, 1000)  # Velocidades iniciais
+angles = np.arange(0, 16, 1)  # Ângulos de lançamento
+
+# Executa uma simulação inicial para um conjunto de parâmetros
+t, h, v, pd, vt, gmax_x, gmax_y, a = reentry(10000, 130000, 0.1, 1000, 10)
+
+# Realiza a simulação completa para encontrar parâmetros válidos
+res = simulation(vos, 130000, 0.1, 10000, angles)
+
+# Plotagem dos resultados
+
+# Gráfico da posição em x ao longo do tempo
+plt.figure(figsize=(10, 5))
+plt.plot(t, h[:, 0], label='Posição em x')
+plt.xlabel('Tempo (s)')
+plt.ylabel('Posição em x (m)')
+plt.title('Posição em x ao longo do tempo')
+plt.legend()
+plt.grid(True)
+plt.show()
+
+# Gráfico da posição em y ao longo do tempo
+plt.figure(figsize=(10, 5))
+plt.plot(t, h[:, 1], label='Posição em y')
+plt.xlabel('Tempo (s)')
+plt.ylabel('Posição em y (m)')
+plt.title('Posição em y ao longo do tempo')
+plt.legend()
+plt.grid(True)
+plt.show()
+
+# Gráfico da velocidade em x ao longo do tempo
+plt.figure(figsize=(10, 5))
+plt.plot(t, v[:, 0], label='Velocidade em x')
+plt.xlabel('Tempo (s)')
+plt.ylabel('Velocidade em x (m/s)')
+plt.title('Velocidade em x ao longo do tempo')
+plt.legend()
+plt.grid(True)
+plt.show()
+
+# Gráfico da velocidade em y ao longo do tempo
+plt.figure(figsize=(10, 5))
+plt.plot(t, v[:, 1], label='Velocidade em y')
+plt.xlabel('Tempo (s)')
+plt.ylabel('Velocidade em y (m/s)')
+plt.title('Velocidade em y ao longo do tempo')
+plt.legend()
+plt.grid(True)
+plt.show()
+
+# Gráfico da aceleração em x ao longo do tempo
+plt.figure(figsize=(10, 5))
+plt.plot(t, a[:, 0], label='Aceleração em x')
+plt.xlabel('Tempo (s)')
+plt.ylabel('Aceleração em x (m/s^2)')
+plt.title('Aceleração em x ao longo do tempo')
+plt.legend()
+plt.grid(True)
+plt.show()
+
+# Gráfico da aceleração em y ao longo do tempo
+plt.figure(figsize=(10, 5))
+plt.plot(t, a[:, 1], label='Aceleração em y')
+plt.xlabel('Tempo (s)')
+plt.ylabel('Aceleração em y (m/s^2)')
+plt.title('Aceleração em y ao longo do tempo')
+plt.legend()
+plt.grid(True)
+plt.show()
+
+# Gráfico dos parâmetros válidos
+plt.figure(figsize=(10, 5))
+plt.plot(res[:, 0], res[:, 1], label='Parâmetros válidos')
+plt.xlabel('Velocidade (m/s)')
+plt.ylabel('Ângulo (°)')
+plt.title('Combinações válidas de Velocidade inicial e Ângulo de lançamento')
+plt.legend()
+plt.grid(True)
+plt.show()
+
+
+
+
+    
+   
+    
+
             
     
   
